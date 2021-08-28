@@ -1,6 +1,7 @@
 
 # Utilities used by all wrappers:
 import macros
+from strutils import replace, toUpperAscii
 
 macro declAll(types: varargs[untyped]): untyped =
   template declType(t: untyped): untyped =
@@ -17,7 +18,9 @@ declAll(
   OpaqueModuleProvider, OpaquePassManager, OpaquePassRegistry, OpaqueUse, OpaqueDiagnosticInfo,
   OpaqueTargetMachine, OpaquePassManagerBuilder, OpaqueMetadata, target, OpaqueTargetData,
   OpaqueTargetLibraryInfotData, OpaqueMemoryBuffer, OpaqueDIBuilder, OpaqueGenericValue, OpaqueExecutionEngine,
-  OpaqueMCJITMemoryManager
+  OpaqueMCJITMemoryManager,
+  OpaqueModuleFlagEntry, OpaqueNamedMDNode, OpaqueValueMetadataEntry, OpaqueJITEventListener,
+  RemarkOpaqueString, RemarkOpaqueDebugLog, RemarkOpaqueArg, RemarkOpaqueEntry, RemarkOpaqueParser
 )
 
 
@@ -29,26 +32,30 @@ type
 
 # Import the matching version:
 const
-  LLVMV* {. strdefine .} = "5.0"
-  LLVMLib* {. strdefine .} = "libLLVM-" & LLVMV & ".so"
+  LLVMV* {. intdefine .} = 11
+  LLVMLib* {. strdefine .} = "libLLVM-" & $LLVMV & ".so"
   canDumpType* = false
 
 macro includeAll(version: static[string]): untyped =
   result = newNimNode(nnkStmtList)
 
-  for file in ["Types", "Support", "Core", "Target", "TargetMachine", "ExecutionEngine", "BitReader", "BitWriter", "IRReader", "Linker",
-               "Initialization", "Transforms/PassManagerBuilder"]:
+  for file in ["Types", "Support", "Core", "Remarks", "Target", "TargetMachine", "ExecutionEngine", "BitReader", "BitWriter", "IRReader", "Linker",
+               "Initialization", "Transforms"]:
     result.add newTree(nnkIncludeStmt, newIdentNode($version & "/" & file))
 
-when LLVMV == "Unknown":
-  {.warning: "No LLVM version was specified." .}
+when LLVMV == 0:
+  {.error: "No LLVM version was specified." .}
 
-{.passC: gorge("llvm-config-" & LLVMV & " --cflags") .}
-{.passL: gorge("llvm-config-" & LLVMV & " --cflags --ldflags --libs all") .}
 
-{.compile: "wrapper.c".}
+{.passC: gorge("llvm-config-" & $LLVMV & " --cflags") .}
+{.passL: gorge("llvm-config-" & $LLVMV & " --ldflags --libs").replace("\n", "").}
 
-includeAll LLVMV
+when LLVMV < 11:
+  {.compile: "wrapper.c".}
+
+{.pragma: llvmc, importc: "LLVM$1", dynlib: LLVMLib.}
+
+includeAll $LLVMV
 
 converter LLVMBoolToNim*(b: Bool): bool =
   b == 1
