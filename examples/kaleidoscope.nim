@@ -19,65 +19,61 @@ proc deallocCStringArray*(a: cstringArray) =
     inc(i)
     dealloc(a)
 
-InitializeNativeTarget()
-InitializeNativeAsmPrinter()
-InitializeNativeAsmParser()
-InitializeNativeDisassembler()
+{.emit: """
+LLVM_InitializeNativeTarget();
+LLVM_InitializeNativeAsmPrinter();
+LLVM_InitializeNativeAsmParser();
+LLVM_InitializeNativeDisassembler();
+""" .}
 
-let ctx = ContextCreate()
-let module = ModuleCreateWithNameInContext("world", ctx)
-let builder = CreateBuilderInContext(ctx)
+# initializeNativeTarget()
 
-if module == nil or builder == nil:
-  quit "Error creatre module or builder"
+let ctx = contextCreate()
+let module = moduleCreateWithNameInContext("world", ctx)
+let builder = createBuilderInContext(ctx)
 
 let err = allocCStringArray(["a", "b", "c"])
 
 converter toPtr[I, T](x: array[I, T]): ptr T = cast[ptr T](addr x)
 
-let i64t = IntTypeInContext(ctx, 64)
+let i64t = intTypeInContext(ctx, 64)
 var args = [i64t, i64t, i64t]
-let fnt  = FunctionType(i64t, addr args[0], 3, false)
+let fnt  = functionType(i64t, addr args[0], 3, false)
 
-let fn = AddFunction(module, "hello", fnt)
-let bb = AppendBasicBlockInContext(ctx, fn, "entry")
+let fn = addFunction(module, "hello", fnt)
+let bb = appendBasicBlockInContext(ctx, fn, "entry")
 
-PositionBuilderAtEnd(builder, bb)
+positionBuilderAtEnd(builder, bb)
 
-let x = GetParam(fn, 0)
-let y = GetParam(fn, 1)
-let z = GetParam(fn, 2)
+let x = getParam(fn, 0)
+let y = getParam(fn, 1)
+let z = getParam(fn, 2)
 
-let xysum  = BuildAdd(builder, x, y, "sum_xy")
-let xyzsum = BuildAdd(builder, xysum, z, "sum_xyz")
+let xysum  = buildAdd(builder, x, y, "sum_xy")
+let xyzsum = buildAdd(builder, xysum, z, "sum_xyz")
 
-discard BuildRet(builder, xyzsum)
+discard buildRet(builder, xyzsum)
 
 var ee: ExecutionEngineRef
 
-if not CreateJITCompilerForModule(addr ee, module, 0, err):
-  quit "Error..."
+if not createJITCompilerForModule(addr ee, module, 0, err):
+  echo "Error..."
 
-deallocCStringArray(err)
-
-#[
-Due to restriction of MCJIT execution egine, RunFunction doesnt work in this case
-More detail: https://stackoverflow.com/q/63438899
-
+# echo "fn: " & $printValueToString(fn)
+# let fnAddr = getFunctionAddress(ee, "hello")
 var aargs = [
-  CreateGenericValueOfInt(i64t, 1, true),
-  CreateGenericValueOfInt(i64t, 2, true),
-  CreateGenericValueOfInt(i64t, 3, true)
+  createGenericValueOfInt(i64t, 1, true),
+  createGenericValueOfInt(i64t, 2, true),
+  createGenericValueOfInt(i64t, 3, true)
 ]
 
-let res = RunFunction(ee, fn, 3, addr aargs[0])
-# echo "result: " & $GenericValueToInt(res, true)
-]#
+let res = runFunction(ee, fn, 3, addr aargs[0])
 
-let sum = cast[proc(a,b,c: int64): int64 {.noconv.}](GetFunctionAddress(ee, "hello"))
+echo "result: " & $genericValueToInt(res, true)
 
-echo "Sum: ",  $sum(1, 2, 3)
+# echo "fnAddr: " & $fnAddr
 
+# let sum  = cast[ptr proc(x,y,z: int64): int64](fnAddr)
+
+# echo "Sum: " & $sum[](1, 2, 3)
 echo "Hello world"
-
-echo  PrintModuleToString(module)

@@ -1,7 +1,7 @@
 
 # Utilities used by all wrappers:
 import macros
-from strutils import replace, toUpperAscii
+from strutils import replace, parseFloat
 
 macro declAll(types: varargs[untyped]): untyped =
   template declType(t: untyped): untyped =
@@ -18,11 +18,8 @@ declAll(
   OpaqueModuleProvider, OpaquePassManager, OpaquePassRegistry, OpaqueUse, OpaqueDiagnosticInfo,
   OpaqueTargetMachine, OpaquePassManagerBuilder, OpaqueMetadata, target, OpaqueTargetData,
   OpaqueTargetLibraryInfotData, OpaqueMemoryBuffer, OpaqueDIBuilder, OpaqueGenericValue, OpaqueExecutionEngine,
-  OpaqueMCJITMemoryManager,
-  OpaqueModuleFlagEntry, OpaqueNamedMDNode, OpaqueValueMetadataEntry, OpaqueJITEventListener,
-  RemarkOpaqueString, RemarkOpaqueDebugLog, RemarkOpaqueArg, RemarkOpaqueEntry, RemarkOpaqueParser
+  OpaqueMCJITMemoryManager
 )
-
 
 type
   # Funny type names that came out of c2nim
@@ -32,30 +29,43 @@ type
 
 # Import the matching version:
 const
-  LLVMV* {. intdefine .} = 11
-  LLVMLib* {. strdefine .} = "libLLVM-" & $LLVMV & ".so"
+  LLVMV* {. strdefine .} = "12"
+  LLVMLib* {. strdefine .} = "libLLVM-" & LLVMV & ".so"
   canDumpType* = false
+
+when parseFloat(LLVMV) >= 11.0:
+  declAll(
+    OpaqueModuleFlagEntry, OpaqueNamedMDNode, OpaqueValueMetadataEntry, OpaqueJITEventListener,
+    RemarkOpaqueString, RemarkOpaqueDebugLog, RemarkOpaqueArg, RemarkOpaqueEntry, RemarkOpaqueParser
+  )
+
 
 macro includeAll(version: static[string]): untyped =
   result = newNimNode(nnkStmtList)
 
-  for file in ["Types", "Support", "Core", "Remarks", "Target", "TargetMachine", "ExecutionEngine", "BitReader", "BitWriter", "IRReader", "Linker",
-               "Initialization", "Transforms"]:
-    result.add newTree(nnkIncludeStmt, newIdentNode($version & "/" & file))
+  when parseFloat(LLVMV) >= 11.0:
+    for file in ["Types", "Support", "Core", "Target", "TargetMachine", "ExecutionEngine", "BitReader", "BitWriter", "IRReader", "Linker",
+               "Analysis", "Initialization", "Transforms", "Remarks"]:
+      result.add newTree(nnkIncludeStmt, newIdentNode($version & "/" & file))
+  else:
+    for file in ["Types", "Support", "Core", "Target", "TargetMachine", "ExecutionEngine", "BitReader", "BitWriter", "IRReader", "Linker",
+               "Analysis", "Initialization", "Transforms/PassManagerBuilder"]:
+      result.add newTree(nnkIncludeStmt, newIdentNode($version & "/" & file))
 
-when LLVMV == 0:
+
+when LLVMV == "Unknown":
   {.error: "No LLVM version was specified." .}
 
 
-{.passC: gorge("llvm-config-" & $LLVMV & " --cflags") .}
-{.passL: gorge("llvm-config-" & $LLVMV & " --ldflags --libs").replace("\n", "").}
+{.passC: gorge("llvm-config-" & LLVMV & " --cflags") .}
+{.passL: gorge("llvm-config-" & LLVMV & " --ldflags --libs").replace("\n", "").}
 
-when LLVMV < 11:
+when parseFloat(LLVMV) < 11.0:
   {.compile: "wrapper.c".}
 
 {.pragma: llvmc, importc: "LLVM$1", dynlib: LLVMLib.}
 
-includeAll $LLVMV
+includeAll LLVMV
 
 converter LLVMBoolToNim*(b: Bool): bool =
   b == 1
