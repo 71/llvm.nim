@@ -1,6 +1,7 @@
 
 # Utilities used by all wrappers:
 import macros
+from strutils import replace, parseFloat
 
 macro declAll(types: varargs[untyped]): untyped =
   template declType(t: untyped): untyped =
@@ -20,7 +21,6 @@ declAll(
   OpaqueMCJITMemoryManager
 )
 
-
 type
   # Funny type names that came out of c2nim
   uint64T = uint64
@@ -29,24 +29,41 @@ type
 
 # Import the matching version:
 const
-  LLVMV* {. strdefine .} = "5.0"
+  LLVMV* {. strdefine .} = "12"
   LLVMLib* {. strdefine .} = "libLLVM-" & LLVMV & ".so"
   canDumpType* = false
+
+when parseFloat(LLVMV) >= 11.0:
+  declAll(
+    OpaqueModuleFlagEntry, OpaqueNamedMDNode, OpaqueValueMetadataEntry, OpaqueJITEventListener,
+    RemarkOpaqueString, RemarkOpaqueDebugLog, RemarkOpaqueArg, RemarkOpaqueEntry, RemarkOpaqueParser
+  )
+
 
 macro includeAll(version: static[string]): untyped =
   result = newNimNode(nnkStmtList)
 
-  for file in ["Types", "Support", "Core", "Target", "TargetMachine", "ExecutionEngine", "BitReader", "BitWriter", "IRReader", "Linker",
-               "Initialization", "Transforms/PassManagerBuilder"]:
-    result.add newTree(nnkIncludeStmt, newIdentNode($version & "/" & file))
+  when parseFloat(LLVMV) >= 11.0:
+    for file in ["Types", "Support", "Core", "Target", "TargetMachine", "ExecutionEngine", "BitReader", "BitWriter", "IRReader", "Linker",
+               "Analysis", "Initialization", "Transforms", "Remarks"]:
+      result.add newTree(nnkIncludeStmt, newIdentNode($version & "/" & file))
+  else:
+    for file in ["Types", "Support", "Core", "Target", "TargetMachine", "ExecutionEngine", "BitReader", "BitWriter", "IRReader", "Linker",
+               "Analysis", "Initialization", "Transforms/PassManagerBuilder"]:
+      result.add newTree(nnkIncludeStmt, newIdentNode($version & "/" & file))
+
 
 when LLVMV == "Unknown":
-  {.warning: "No LLVM version was specified." .}
+  {.error: "No LLVM version was specified." .}
+
 
 {.passC: gorge("llvm-config-" & LLVMV & " --cflags") .}
-{.passL: gorge("llvm-config-" & LLVMV & " --cflags --ldflags --libs all") .}
+{.passL: gorge("llvm-config-" & LLVMV & " --ldflags --libs").replace("\n", "").}
 
-{.compile: "wrapper.c".}
+when parseFloat(LLVMV) < 11.0:
+  {.compile: "wrapper.c".}
+
+{.pragma: llvmc, importc: "LLVM$1", dynlib: LLVMLib.}
 
 includeAll LLVMV
 
